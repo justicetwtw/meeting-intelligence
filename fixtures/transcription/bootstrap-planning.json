@@ -1,0 +1,27 @@
+{
+  "meeting_id": "meeting_fixture_001",
+  "language": "en",
+  "segments": [
+    {
+      "id": "seg_001",
+      "speaker_id": "speaker_01",
+      "start_ms": 0,
+      "end_ms": 4200,
+      "text": "Let us keep the bootstrap pipeline offline and deterministic."
+    },
+    {
+      "id": "seg_002",
+      "speaker_id": "speaker_02",
+      "start_ms": 4300,
+      "end_ms": 8100,
+      "text": "Can we export the same result as Markdown and JSON?"
+    },
+    {
+      "id": "seg_003",
+      "speaker_id": "speaker_01",
+      "start_ms": 8200,
+      "end_ms": 12600,
+      "text": "Yes. Alice will verify both artifacts before the pull request."
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/desktop/src-tauri",
+  "apps/server",
+  "crates/core",
+  "crates/exporters",
+  "crates/providers",
+  "crates/storage",
+  "tests/integration",
+]
+default-members = [
+  "apps/server",
+  "crates/core",
+  "crates/exporters",
+  "crates/providers",
+  "crates/storage",
+  "tests/integration",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97"
+license = "MIT"
+repository = "https://github.com/justicetwtw/meeting-intelligence"
+
+[workspace.dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+# Bootstrap providers expose configuration only and never send requests. TLS is
+# selected by a future concrete remote provider instead of being pulled into
+# the fully offline mock pipeline.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2", features = [] }
+tauri-build = { version = "2", features = [] }
+thiserror = "2.0"
+tokio = { version = "1.42", features = ["fs", "macros", "rt-multi-thread", "sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"

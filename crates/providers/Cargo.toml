@@ -1,0 +1,23 @@
+[package]
+name = "meeting-intelligence-providers"
+description = "Provider contracts, mock providers, and HTTP client foundation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+http-client = ["dep:reqwest"]
+
+[dependencies]
+async-trait.workspace = true
+meeting-intelligence-core = { path = "../core" }
+reqwest = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

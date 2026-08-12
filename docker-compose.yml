@@ -1,0 +1,35 @@
+services:
+  local-ai:
+    build:
+      context: ./services/local-ai
+    environment:
+      MI_LOCAL_AI_HOST: 0.0.0.0
+      MI_LOCAL_AI_MODE: mock
+      MI_LOCAL_AI_PORT: 8091
+    init: true
+    ports:
+      - "127.0.0.1:${MI_LOCAL_AI_PORT:-8091}:8091"
+    read_only: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import json, urllib.request;
+          response = urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=2);
+          assert response.status == 200;
+          assert json.load(response)['mode'] == 'mock'
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+# Provider credentials are intentionally absent. Future server-only services
+# must receive secrets at runtime; never add them as image build arguments or
+# expose them to desktop/web client containers.

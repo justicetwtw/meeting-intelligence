@@ -1,0 +1,17 @@
+[package]
+name = "meeting-intelligence-exporters"
+description = "Deterministic Markdown and JSON exporters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+meeting-intelligence-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1",
+  "source": "slack",
+  "eventId": "Ev_mock_001",
+  "teamId": "T_mock_workspace",
+  "eventType": "app_mention",
+  "channelId": "C_mock_channel",
+  "userId": "U_mock_user",
+  "text": "<@U_mock_bot> summarize fixture meeting mtg_mock_001",
+  "eventTs": "1767225600.000001",
+  "receivedAt": "2026-01-01T00:00:00Z",
+  "threadTs": null
+}

@@ -1,0 +1,21 @@
+@import "tailwindcss";
+@import "@meeting-intelligence/ui/styles.css";
+@source "../../../packages/ui/src";
+
+html {
+  min-width: 320px;
+  background: var(--mi-canvas);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
