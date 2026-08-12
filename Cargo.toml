@@ -32,7 +32,7 @@ async-trait = "0.1"
 # selected by a future concrete remote provider instead of being pulled into
 # the fully offline mock pipeline.
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tauri = { version = "2", features = [] }
