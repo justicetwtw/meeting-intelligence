@@ -57,6 +57,7 @@ rm -rf -- "$output_directory"
 cargo run --package meeting-intelligence-server -- fixtures "$output_directory"
 test -s "$output_directory/meeting.md"
 test -s "$output_directory/meeting.json"
+test -s "$output_directory/meeting.docx"
 
 current_stage="Python environment"
 printf '\n==> %s\n' "$current_stage"

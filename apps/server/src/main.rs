@@ -1,11 +1,12 @@
 use std::{env, fs, path::Path, path::PathBuf, sync::Arc};
 
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use meeting_intelligence_core::{
     AudioSource, Meeting, MeetingCore, ProcessMeetingRequest, SpeakerProfile, StorageProvider,
 };
 use meeting_intelligence_exporters::{
-    ArtifactExporter, ExportBundle, JsonExporter, MarkdownExporter,
+    ArtifactExporter, DocxExporter, ExportBundle, JsonExporter, MarkdownExporter,
 };
 use meeting_intelligence_providers::{
     FixtureTranscriptionProvider, MockIntelligenceProvider, MockSpeakerIdentityProvider,
@@ -56,34 +57,45 @@ async fn main() -> Result<()> {
 
     let meeting_id = meeting.id.clone();
     let processed = core
-        .process(ProcessMeetingRequest {
-            meeting,
-            audio_source: AudioSource::Fixture {
-                reference: "transcription/bootstrap-planning.json".to_owned(),
-            },
-            language_hints: vec!["en".to_owned()],
-            known_context: Some("offline bootstrap verification".to_owned()),
-            speaker_profiles,
-        })
+        .process(
+            ProcessMeetingRequest::new(
+                meeting,
+                AudioSource::Fixture {
+                    reference: "transcription/bootstrap-planning.json".to_owned(),
+                },
+            )
+            .with_language_hints(vec!["en".to_owned()])
+            .with_known_context(Some("offline bootstrap verification".to_owned()))
+            .with_speaker_profiles(speaker_profiles),
+        )
         .await?;
 
     let bundle = ExportBundle::from(&processed);
     let markdown = MarkdownExporter.export(&bundle)?;
     let json = JsonExporter.export(&bundle)?;
+    let docx = DocxExporter.export(&bundle)?;
     storage.save_artifact(&markdown).await?;
     storage.save_artifact(&json).await?;
+    storage.save_artifact(&docx).await?;
 
     tokio::fs::create_dir_all(&output_root)
         .await
         .with_context(|| format!("could not create {}", output_root.display()))?;
     let markdown_path = output_root.join("meeting.md");
     let json_path = output_root.join("meeting.json");
+    let docx_path = output_root.join("meeting.docx");
     tokio::fs::write(&markdown_path, markdown.content)
         .await
         .with_context(|| format!("could not write {}", markdown_path.display()))?;
     tokio::fs::write(&json_path, json.content)
         .await
         .with_context(|| format!("could not write {}", json_path.display()))?;
+    let docx_bytes = STANDARD
+        .decode(&docx.content)
+        .context("the Word artifact was not valid Base64")?;
+    tokio::fs::write(&docx_path, docx_bytes)
+        .await
+        .with_context(|| format!("could not write {}", docx_path.display()))?;
 
     if storage.load_analysis(&meeting_id).await?.is_none() {
         bail!("mock pipeline completed without persisting its analysis");
@@ -92,6 +104,7 @@ async fn main() -> Result<()> {
     info!(meeting_id, "offline mock pipeline completed");
     println!("wrote {}", markdown_path.display());
     println!("wrote {}", json_path.display());
+    println!("wrote {}", docx_path.display());
     Ok(())
 }
 

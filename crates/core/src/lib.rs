@@ -4,10 +4,16 @@ mod error;
 mod models;
 mod pipeline;
 mod ports;
+mod progress;
 
 pub use error::{CoreError, ProviderError};
 pub use models::*;
-pub use pipeline::{MeetingCore, ProcessMeetingRequest, ProcessedMeeting};
+pub use pipeline::{transcript_duration_ms, MeetingCore, ProcessMeetingRequest, ProcessedMeeting};
 pub use ports::{
-    IntelligenceProvider, SpeakerIdentityProvider, StorageProvider, TranscriptionProvider,
+    IntelligenceProvider, RunContext, SpeakerIdentityProvider, StorageProvider,
+    TranscriptionProvider,
+};
+pub use progress::{
+    CancellationToken, NoopProgressReporter, ProcessingStage, ProgressDetail, ProgressEvent,
+    ProgressReporter, RunProgress,
 };

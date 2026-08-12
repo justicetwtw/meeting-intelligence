@@ -1,0 +1,37 @@
+[package]
+name = "meeting-intelligence-app"
+description = "Native application services shared by the desktop and server interfaces"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Enables the production OpenAI provider path and OS-native credential storage.
+openai = [
+  "meeting-intelligence-providers/openai",
+  "meeting-intelligence-credentials/os-store",
+]
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+meeting-intelligence-audio = { path = "../audio" }
+meeting-intelligence-core = { path = "../core" }
+meeting-intelligence-credentials = { path = "../credentials" }
+meeting-intelligence-exporters = { path = "../exporters" }
+meeting-intelligence-providers = { path = "../providers" }
+meeting-intelligence-storage = { path = "../storage" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

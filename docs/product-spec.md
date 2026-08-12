@@ -32,6 +32,18 @@ without changing the canonical meeting model.
 6. **Mock-first development.** The entire canonical path remains testable without
    keys, paid services, live Slack, a GPU, or downloaded models.
 
+## M1 acceptance (OpenAI desktop MVP)
+
+A person can install the desktop application, connect their own OpenAI key,
+import a real meeting recording, read a speaker-aware transcript, rename a
+speaker and see it applied everywhere, read a summary with decisions, action
+items, and open questions whose evidence references resolve to real transcript
+segments, restart the application and still find the meeting, and export it as
+Markdown, JSON, and Word.
+
+Unchanged by that milestone: mock mode must still complete the whole canonical
+path with no credential, no network, and no cost.
+
 ## Bootstrap acceptance
 
 The bootstrap milestone provides repository structure, contracts, canonical

@@ -7,9 +7,23 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# Opt-in only. Enabling this feature compiles the live OpenAI contract tests;
+# they still skip at runtime unless MEETING_INTELLIGENCE_OPENAI_TEST_KEY is set,
+# so no default run, verification script, or CI job can spend money.
+openai-live = [
+  "meeting-intelligence-providers/openai",
+  "dep:meeting-intelligence-audio",
+  "dep:meeting-intelligence-credentials",
+]
+
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
+meeting-intelligence-audio = { path = "../../crates/audio", optional = true }
 meeting-intelligence-core = { path = "../../crates/core" }
+meeting-intelligence-credentials = { path = "../../crates/credentials", optional = true }
 meeting-intelligence-exporters = { path = "../../crates/exporters" }
 meeting-intelligence-providers = { path = "../../crates/providers" }
 meeting-intelligence-storage = { path = "../../crates/storage" }

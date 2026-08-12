@@ -10,7 +10,6 @@ repository.workspace = true
 [lib]
 name = "meeting_intelligence_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
-test = false
 doctest = false
 
 [[bin]]
@@ -22,8 +21,21 @@ test = false
 tauri-build.workspace = true
 
 [dependencies]
+meeting-intelligence-app = { path = "../../../crates/app", features = ["openai"] }
+meeting-intelligence-core = { path = "../../../crates/core" }
+meeting-intelligence-credentials = { path = "../../../crates/credentials", features = [
+  "os-store",
+] }
+meeting-intelligence-storage = { path = "../../../crates/storage" }
 serde.workspace = true
 tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+meeting-intelligence-providers = { path = "../../../crates/providers" }
 
 [lints]
 workspace = true

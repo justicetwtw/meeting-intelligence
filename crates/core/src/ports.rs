@@ -1,13 +1,48 @@
 use async_trait::async_trait;
 
 use crate::{
-    Artifact, IntelligenceRequest, Meeting, MeetingAnalysis, ProcessingJob, ProviderError, Speaker,
-    SpeakerIdentityRequest, SpeakerProfile, Transcript, TranscriptionRequest,
+    Artifact, CancellationToken, IntelligenceRequest, Meeting, MeetingAnalysis, ProcessingJob,
+    ProviderError, RunProgress, Speaker, SpeakerIdentityRequest, SpeakerProfile, Transcript,
+    TranscriptionRequest,
 };
+
+/// Per-run collaboration channel handed to providers.
+///
+/// It carries only orchestration concerns — stage reporting and cooperative
+/// cancellation — so providers stay stateless and reusable across runs.
+#[derive(Clone, Debug)]
+pub struct RunContext {
+    pub progress: RunProgress,
+    pub cancellation: CancellationToken,
+}
+
+impl RunContext {
+    pub fn new(progress: RunProgress, cancellation: CancellationToken) -> Self {
+        Self {
+            progress,
+            cancellation,
+        }
+    }
+
+    /// Context used by tests and by interfaces that observe no progress.
+    pub fn detached() -> Self {
+        Self::new(RunProgress::disabled(), CancellationToken::new())
+    }
+}
+
+impl Default for RunContext {
+    fn default() -> Self {
+        Self::detached()
+    }
+}
 
 #[async_trait]
 pub trait TranscriptionProvider: Send + Sync {
-    async fn transcribe(&self, request: TranscriptionRequest) -> Result<Transcript, ProviderError>;
+    async fn transcribe(
+        &self,
+        request: TranscriptionRequest,
+        context: &RunContext,
+    ) -> Result<Transcript, ProviderError>;
 }
 
 #[async_trait]
@@ -15,13 +50,17 @@ pub trait SpeakerIdentityProvider: Send + Sync {
     async fn identify(
         &self,
         request: SpeakerIdentityRequest,
+        context: &RunContext,
     ) -> Result<Vec<Speaker>, ProviderError>;
 }
 
 #[async_trait]
 pub trait IntelligenceProvider: Send + Sync {
-    async fn analyze(&self, request: IntelligenceRequest)
-        -> Result<MeetingAnalysis, ProviderError>;
+    async fn analyze(
+        &self,
+        request: IntelligenceRequest,
+        context: &RunContext,
+    ) -> Result<MeetingAnalysis, ProviderError>;
 }
 
 /// Persistence port used by Meeting Core. UI layers should call application
@@ -30,6 +69,9 @@ pub trait IntelligenceProvider: Send + Sync {
 pub trait StorageProvider: Send + Sync {
     async fn save_meeting(&self, meeting: &Meeting) -> Result<(), ProviderError>;
     async fn load_meeting(&self, meeting_id: &str) -> Result<Option<Meeting>, ProviderError>;
+    /// Meeting history, most recently updated first. Ordering must be stable so
+    /// interfaces can render a deterministic list.
+    async fn list_meetings(&self) -> Result<Vec<Meeting>, ProviderError>;
 
     async fn save_job(&self, job: &ProcessingJob) -> Result<(), ProviderError>;
     async fn load_job(&self, job_id: &str) -> Result<Option<ProcessingJob>, ProviderError>;

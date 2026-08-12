@@ -13,13 +13,16 @@ use meeting_intelligence_core::{
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Serialize};
 
+mod migrations;
+
+pub use migrations::{schema_version, SCHEMA_VERSION};
+
 pub struct SqliteStorage {
     connection: Mutex<Connection>,
 }
 
 #[derive(Clone, Copy)]
 enum DocumentTable {
-    Meetings,
     Jobs,
     Transcripts,
     SpeakerSets,
@@ -31,10 +34,6 @@ enum DocumentTable {
 impl DocumentTable {
     fn upsert_sql(self) -> &'static str {
         match self {
-            Self::Meetings => {
-                "INSERT INTO meetings (id, payload) VALUES (?1, ?2) \
-                 ON CONFLICT(id) DO UPDATE SET payload = excluded.payload"
-            }
             Self::Jobs => {
                 "INSERT INTO processing_jobs (id, payload) VALUES (?1, ?2) \
                  ON CONFLICT(id) DO UPDATE SET payload = excluded.payload"
@@ -65,7 +64,6 @@ impl DocumentTable {
 
     fn select_sql(self) -> &'static str {
         match self {
-            Self::Meetings => "SELECT payload FROM meetings WHERE id = ?1",
             Self::Jobs => "SELECT payload FROM processing_jobs WHERE id = ?1",
             Self::Transcripts => "SELECT payload FROM transcripts WHERE meeting_id = ?1",
             Self::SpeakerSets => "SELECT payload FROM speaker_sets WHERE meeting_id = ?1",
@@ -87,46 +85,11 @@ impl SqliteStorage {
         Self::from_connection(connection)
     }
 
-    fn from_connection(connection: Connection) -> Result<Self, ProviderError> {
+    fn from_connection(mut connection: Connection) -> Result<Self, ProviderError> {
         connection
-            .execute_batch(
-                "PRAGMA foreign_keys = ON;
-                 CREATE TABLE IF NOT EXISTS meetings (
-                   id TEXT PRIMARY KEY NOT NULL,
-                   payload TEXT NOT NULL
-                 );
-                 CREATE TABLE IF NOT EXISTS processing_jobs (
-                   id TEXT PRIMARY KEY NOT NULL,
-                   payload TEXT NOT NULL
-                 );
-                 CREATE TABLE IF NOT EXISTS transcripts (
-                   meeting_id TEXT PRIMARY KEY NOT NULL,
-                   payload TEXT NOT NULL,
-                   FOREIGN KEY(meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
-                 );
-                 CREATE TABLE IF NOT EXISTS speaker_sets (
-                   meeting_id TEXT PRIMARY KEY NOT NULL,
-                   payload TEXT NOT NULL,
-                   FOREIGN KEY(meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
-                 );
-                 CREATE TABLE IF NOT EXISTS speaker_profiles (
-                   id TEXT PRIMARY KEY NOT NULL,
-                   payload TEXT NOT NULL
-                 );
-                 CREATE TABLE IF NOT EXISTS meeting_analyses (
-                   meeting_id TEXT PRIMARY KEY NOT NULL,
-                   payload TEXT NOT NULL,
-                   FOREIGN KEY(meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
-                 );
-                 CREATE TABLE IF NOT EXISTS artifacts (
-                   id TEXT PRIMARY KEY NOT NULL,
-                   meeting_id TEXT NOT NULL,
-                   payload TEXT NOT NULL,
-                   FOREIGN KEY(meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
-                 );
-                 PRAGMA user_version = 1;",
-            )
+            .execute_batch("PRAGMA foreign_keys = ON;")
             .map_err(storage_error)?;
+        migrations::migrate(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -185,11 +148,58 @@ fn storage_error(error: impl std::fmt::Display) -> ProviderError {
 #[async_trait]
 impl StorageProvider for SqliteStorage {
     async fn save_meeting(&self, meeting: &Meeting) -> Result<(), ProviderError> {
-        self.upsert(DocumentTable::Meetings, &meeting.id, meeting)
+        let payload = serde_json::to_string(meeting).map_err(storage_error)?;
+        let connection = self.connection()?;
+        // A monotonic sequence keeps history ordering deterministic without
+        // depending on wall-clock resolution.
+        let next_sequence: i64 = connection
+            .query_row(
+                "SELECT COALESCE(MAX(updated_seq), 0) + 1 FROM meetings",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(storage_error)?;
+        connection
+            .execute(
+                "INSERT INTO meetings (id, payload, updated_seq) VALUES (?1, ?2, ?3) \
+                 ON CONFLICT(id) DO UPDATE SET \
+                 payload = excluded.payload, updated_seq = excluded.updated_seq",
+                params![meeting.id, payload, next_sequence],
+            )
+            .map_err(storage_error)?;
+        Ok(())
     }
 
     async fn load_meeting(&self, meeting_id: &str) -> Result<Option<Meeting>, ProviderError> {
-        self.load(DocumentTable::Meetings, meeting_id)
+        let payload: Option<String> = self
+            .connection()?
+            .query_row(
+                "SELECT payload FROM meetings WHERE id = ?1",
+                params![meeting_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        payload
+            .map(|payload| serde_json::from_str(&payload).map_err(storage_error))
+            .transpose()
+    }
+
+    async fn list_meetings(&self) -> Result<Vec<Meeting>, ProviderError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare("SELECT payload FROM meetings ORDER BY updated_seq DESC, id ASC")
+            .map_err(storage_error)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(storage_error)?;
+
+        let mut meetings = Vec::new();
+        for row in rows {
+            let payload = row.map_err(storage_error)?;
+            meetings.push(serde_json::from_str(&payload).map_err(storage_error)?);
+        }
+        Ok(meetings)
     }
 
     async fn save_job(&self, job: &ProcessingJob) -> Result<(), ProviderError> {
@@ -254,5 +264,114 @@ impl StorageProvider for SqliteStorage {
 
     async fn load_artifact(&self, artifact_id: &str) -> Result<Option<Artifact>, ProviderError> {
         self.load(DocumentTable::Artifacts, artifact_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use meeting_intelligence_core::{
+        ArtifactEncoding, ArtifactKind, MeetingProcessingState, SpeakerIdentityStatus,
+        SpeakerScope, TranscriptSegment,
+    };
+
+    use super::*;
+
+    fn meeting(id: &str, title: &str) -> Meeting {
+        Meeting {
+            id: id.to_owned(),
+            title: title.to_owned(),
+            started_at: Some("2026-08-12T09:00:00Z".to_owned()),
+            processing_state: MeetingProcessingState::Completed,
+            artifact_ids: Vec::new(),
+            participants: Vec::new(),
+            duration_ms: Some(5_247_000),
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn history_lists_the_most_recently_saved_meeting_first() -> Result<(), ProviderError> {
+        let storage = SqliteStorage::open_in_memory()?;
+        storage.save_meeting(&meeting("m1", "First")).await?;
+        storage.save_meeting(&meeting("m2", "Second")).await?;
+
+        let ids: Vec<String> = storage
+            .list_meetings()
+            .await?
+            .into_iter()
+            .map(|value| value.id)
+            .collect();
+        assert_eq!(ids, vec!["m2".to_owned(), "m1".to_owned()]);
+
+        storage.save_meeting(&meeting("m1", "First again")).await?;
+        let ids: Vec<String> = storage
+            .list_meetings()
+            .await?
+            .into_iter()
+            .map(|value| value.id)
+            .collect();
+        assert_eq!(ids, vec!["m1".to_owned(), "m2".to_owned()]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn history_is_empty_before_any_meeting_exists() -> Result<(), ProviderError> {
+        let storage = SqliteStorage::open_in_memory()?;
+        assert!(storage.list_meetings().await?.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn manual_speaker_labels_and_binary_artifacts_round_trip() -> Result<(), ProviderError> {
+        let storage = SqliteStorage::open_in_memory()?;
+        storage.save_meeting(&meeting("m1", "Round trip")).await?;
+
+        let transcript = Transcript {
+            meeting_id: "m1".to_owned(),
+            language: Some("zh".to_owned()),
+            speaker_scope: SpeakerScope::Chunk,
+            segments: vec![TranscriptSegment {
+                id: "seg_00001".to_owned(),
+                speaker_id: "speaker_c01_01".to_owned(),
+                start_ms: 0,
+                end_ms: 1_500,
+                text: "hello".to_owned(),
+            }],
+        };
+        storage.save_transcript(&transcript).await?;
+        assert_eq!(
+            storage.load_transcript("m1").await?.as_ref(),
+            Some(&transcript)
+        );
+
+        let speakers = vec![Speaker {
+            transcript_speaker_id: "speaker_c01_01".to_owned(),
+            identity: SpeakerIdentityStatus::Unknown,
+            profile_id: None,
+            display_name: None,
+            confidence: None,
+            manual_display_name: Some("Mr. Wang".to_owned()),
+        }];
+        storage.save_speakers("m1", &speakers).await?;
+        assert_eq!(storage.load_speakers("m1").await?, speakers);
+
+        let artifact = Artifact {
+            id: "artifact-m1-docx".to_owned(),
+            meeting_id: "m1".to_owned(),
+            kind: ArtifactKind::Docx,
+            media_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                .to_owned(),
+            content: "UEsDBA==".to_owned(),
+            encoding: ArtifactEncoding::Base64,
+            created_at: None,
+        };
+        storage.save_artifact(&artifact).await?;
+        assert_eq!(
+            storage.load_artifact("artifact-m1-docx").await?,
+            Some(artifact)
+        );
+        Ok(())
     }
 }

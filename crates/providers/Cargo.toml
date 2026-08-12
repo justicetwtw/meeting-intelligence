@@ -1,6 +1,6 @@
 [package]
 name = "meeting-intelligence-providers"
-description = "Provider contracts, mock providers, and HTTP client foundation"
+description = "Provider contracts, mock providers, and the OpenAI adapters"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,14 +10,31 @@ repository.workspace = true
 [features]
 default = []
 http-client = ["dep:reqwest"]
+# The production network path. Nothing in mock mode or the offline pipeline
+# enables it, so a credential-free run cannot reach a paid API.
+openai = [
+  "http-client",
+  "dep:meeting-intelligence-audio",
+  "dep:meeting-intelligence-credentials",
+  "dep:tokio",
+  "dep:tracing",
+]
 
 [dependencies]
 async-trait.workspace = true
+meeting-intelligence-audio = { path = "../audio", optional = true }
 meeting-intelligence-core = { path = "../core" }
+meeting-intelligence-credentials = { path = "../credentials", optional = true }
 reqwest = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

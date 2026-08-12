@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
 meeting-intelligence-core = { path = "../../crates/core" }
 meeting-intelligence-exporters = { path = "../../crates/exporters" }
 meeting-intelligence-providers = { path = "../../crates/providers" }

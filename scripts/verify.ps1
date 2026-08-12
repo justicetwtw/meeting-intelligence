@@ -233,7 +233,7 @@ try {
             "fixtures", $outputDirectory
         )
 
-        foreach ($artifactName in @("meeting.md", "meeting.json")) {
+        foreach ($artifactName in @("meeting.md", "meeting.json", "meeting.docx")) {
             $artifactPath = Join-Path $outputDirectory $artifactName
             if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf) -or
                 (Get-Item -LiteralPath $artifactPath).Length -eq 0) {

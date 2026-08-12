@@ -7,9 +7,10 @@ use std::{
 use tracing::{info, warn};
 
 use crate::{
-    AudioSource, CoreError, IntelligenceProvider, IntelligenceRequest, Meeting, MeetingAnalysis,
-    MeetingProcessingState, ProcessingJob, ProcessingJobErrorCategory, ProcessingJobKind,
-    ProcessingJobStatus, Speaker, SpeakerIdentityProvider, SpeakerIdentityRequest,
+    AnalysisMode, AudioSource, CancellationToken, CoreError, IntelligenceProvider,
+    IntelligenceRequest, Meeting, MeetingAnalysis, MeetingProcessingState, NoopProgressReporter,
+    ProcessingJob, ProcessingJobKind, ProcessingJobStatus, ProcessingStage, ProgressReporter,
+    RunContext, RunProgress, Speaker, SpeakerIdentityProvider, SpeakerIdentityRequest,
     SpeakerIdentityStatus, SpeakerProfile, StorageProvider, Transcript, TranscriptionProvider,
     TranscriptionRequest,
 };
@@ -23,6 +24,48 @@ pub struct ProcessMeetingRequest {
     pub language_hints: Vec<String>,
     pub known_context: Option<String>,
     pub speaker_profiles: Vec<SpeakerProfile>,
+    pub analysis_mode: AnalysisMode,
+    pub cancellation: CancellationToken,
+}
+
+impl ProcessMeetingRequest {
+    /// Minimal request used by fixtures, tests, and the offline runner.
+    pub fn new(meeting: Meeting, audio_source: AudioSource) -> Self {
+        Self {
+            meeting,
+            audio_source,
+            language_hints: Vec::new(),
+            known_context: None,
+            speaker_profiles: Vec::new(),
+            analysis_mode: AnalysisMode::default(),
+            cancellation: CancellationToken::new(),
+        }
+    }
+
+    pub fn with_language_hints(mut self, language_hints: Vec<String>) -> Self {
+        self.language_hints = language_hints;
+        self
+    }
+
+    pub fn with_known_context(mut self, known_context: Option<String>) -> Self {
+        self.known_context = known_context;
+        self
+    }
+
+    pub fn with_speaker_profiles(mut self, speaker_profiles: Vec<SpeakerProfile>) -> Self {
+        self.speaker_profiles = speaker_profiles;
+        self
+    }
+
+    pub fn with_analysis_mode(mut self, analysis_mode: AnalysisMode) -> Self {
+        self.analysis_mode = analysis_mode;
+        self
+    }
+
+    pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
+        self.cancellation = cancellation;
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -39,6 +82,7 @@ pub struct MeetingCore {
     speaker_identity: Arc<dyn SpeakerIdentityProvider>,
     intelligence: Arc<dyn IntelligenceProvider>,
     storage: Arc<dyn StorageProvider>,
+    progress: Arc<dyn ProgressReporter>,
     minimum_identity_confidence: f32,
 }
 
@@ -54,6 +98,7 @@ impl MeetingCore {
             speaker_identity,
             intelligence,
             storage,
+            progress: Arc::new(NoopProgressReporter),
             minimum_identity_confidence: DEFAULT_MINIMUM_IDENTITY_CONFIDENCE,
         }
     }
@@ -64,6 +109,11 @@ impl MeetingCore {
         } else {
             DEFAULT_MINIMUM_IDENTITY_CONFIDENCE
         };
+        self
+    }
+
+    pub fn with_progress_reporter(mut self, progress: Arc<dyn ProgressReporter>) -> Self {
+        self.progress = progress;
         self
     }
 
@@ -84,6 +134,10 @@ impl MeetingCore {
             completed_at_ms: None,
             error_category: None,
         };
+        let context = RunContext::new(
+            RunProgress::new(self.progress.clone(), &meeting_id, &job.id),
+            request.cancellation.clone(),
+        );
 
         self.storage.save_meeting(&request.meeting).await?;
         for profile in &request.speaker_profiles {
@@ -92,9 +146,10 @@ impl MeetingCore {
         self.storage.save_job(&job).await?;
         info!(meeting_id, "started meeting pipeline");
 
-        let result = self.process_inner(&request).await;
+        let result = self.process_inner(&request, &context).await;
         match result {
             Ok((transcript, speakers, analysis)) => {
+                context.progress.stage(ProcessingStage::Saving);
                 self.storage.save_transcript(&transcript).await?;
                 self.storage.save_speakers(&meeting_id, &speakers).await?;
                 self.storage.save_analysis(&analysis).await?;
@@ -104,8 +159,10 @@ impl MeetingCore {
                 job.completed_at_ms = Some(completed_at_ms);
                 self.storage.save_job(&job).await?;
                 request.meeting.processing_state = MeetingProcessingState::Completed;
+                request.meeting.duration_ms = transcript_duration_ms(&transcript);
                 self.storage.save_meeting(&request.meeting).await?;
                 info!(meeting_id, "completed meeting pipeline");
+                context.progress.stage(ProcessingStage::Completed);
 
                 Ok(ProcessedMeeting {
                     meeting: request.meeting,
@@ -116,28 +173,29 @@ impl MeetingCore {
                 })
             }
             Err(error) => {
+                let category = error.category();
                 job.status = ProcessingJobStatus::Failed;
                 let completed_at_ms = unix_time_ms();
                 job.updated_at_ms = completed_at_ms;
                 job.completed_at_ms = Some(completed_at_ms);
-                job.error_category = Some(error_category(&error));
+                job.error_category = Some(category);
                 if let Err(storage_error) = self.storage.save_job(&job).await {
-                    let category = error_category(&CoreError::Provider(storage_error));
                     warn!(
                         meeting_id,
-                        error_category = ?category,
+                        error_category = ?storage_error.category(),
                         "could not persist failed job status"
                     );
                 }
                 request.meeting.processing_state = MeetingProcessingState::Failed;
                 if let Err(storage_error) = self.storage.save_meeting(&request.meeting).await {
-                    let category = error_category(&CoreError::Provider(storage_error));
                     warn!(
                         meeting_id,
-                        error_category = ?category,
+                        error_category = ?storage_error.category(),
                         "could not persist failed meeting state"
                     );
                 }
+                warn!(meeting_id, error_category = ?category, "meeting pipeline failed");
+                context.progress.failed(category);
                 Err(error)
             }
         }
@@ -146,43 +204,68 @@ impl MeetingCore {
     async fn process_inner(
         &self,
         request: &ProcessMeetingRequest,
+        context: &RunContext,
     ) -> Result<(Transcript, Vec<Speaker>, MeetingAnalysis), CoreError> {
+        context.cancellation.check()?;
         let transcript = self
             .transcription
-            .transcribe(TranscriptionRequest {
-                meeting: request.meeting.clone(),
-                audio_source: request.audio_source.clone(),
-                language_hints: request.language_hints.clone(),
-                known_context: request.known_context.clone(),
-            })
+            .transcribe(
+                TranscriptionRequest {
+                    meeting: request.meeting.clone(),
+                    audio_source: request.audio_source.clone(),
+                    language_hints: request.language_hints.clone(),
+                    known_context: request.known_context.clone(),
+                },
+                context,
+            )
             .await?;
         validate_transcript(&request.meeting.id, &transcript)?;
+        context.cancellation.check()?;
 
         let speakers = self
             .speaker_identity
-            .identify(SpeakerIdentityRequest {
-                transcript: transcript.clone(),
-                enrolled_profiles: request.speaker_profiles.clone(),
-            })
+            .identify(
+                SpeakerIdentityRequest {
+                    transcript: transcript.clone(),
+                    enrolled_profiles: request.speaker_profiles.clone(),
+                },
+                context,
+            )
             .await?;
         let speakers = normalize_speakers(
             speakers,
             &request.speaker_profiles,
             self.minimum_identity_confidence,
         );
+        context.cancellation.check()?;
 
+        context.progress.stage(ProcessingStage::Analyzing);
         let analysis = self
             .intelligence
-            .analyze(IntelligenceRequest {
-                meeting: request.meeting.clone(),
-                transcript: transcript.clone(),
-                speakers: speakers.clone(),
-            })
+            .analyze(
+                IntelligenceRequest {
+                    meeting: request.meeting.clone(),
+                    transcript: transcript.clone(),
+                    speakers: speakers.clone(),
+                    analysis_mode: request.analysis_mode,
+                },
+                context,
+            )
             .await?;
         validate_analysis(&request.meeting.id, &transcript, &analysis)?;
+        context.cancellation.check()?;
 
         Ok((transcript, speakers, analysis))
     }
+}
+
+/// Whole-meeting length implied by the transcript, if any segment exists.
+pub fn transcript_duration_ms(transcript: &Transcript) -> Option<u64> {
+    transcript
+        .segments
+        .iter()
+        .map(|segment| segment.end_ms)
+        .max()
 }
 
 fn validate_transcript(meeting_id: &str, transcript: &Transcript) -> Result<(), CoreError> {
@@ -262,18 +345,6 @@ fn unix_time_ms() -> u64 {
         })
 }
 
-fn error_category(error: &CoreError) -> ProcessingJobErrorCategory {
-    match error {
-        CoreError::InvalidProviderOutput(_) => ProcessingJobErrorCategory::InvalidProviderOutput,
-        CoreError::Provider(crate::ProviderError::Failure { provider, .. })
-            if matches!(*provider, "sqlite" | "storage") =>
-        {
-            ProcessingJobErrorCategory::Storage
-        }
-        CoreError::Provider(_) => ProcessingJobErrorCategory::Provider,
-    }
-}
-
 fn validate_analysis(
     meeting_id: &str,
     transcript: &Transcript,
@@ -315,4 +386,61 @@ fn validate_analysis(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ProcessingJobErrorCategory, ProviderError, TranscriptSegment};
+
+    #[test]
+    fn duration_uses_the_last_segment_end() {
+        let transcript = Transcript {
+            meeting_id: "m".to_owned(),
+            language: None,
+            speaker_scope: crate::SpeakerScope::Meeting,
+            segments: vec![
+                TranscriptSegment {
+                    id: "seg_00001".to_owned(),
+                    speaker_id: "speaker_01".to_owned(),
+                    start_ms: 0,
+                    end_ms: 1_000,
+                    text: "a".to_owned(),
+                },
+                TranscriptSegment {
+                    id: "seg_00002".to_owned(),
+                    speaker_id: "speaker_02".to_owned(),
+                    start_ms: 1_000,
+                    end_ms: 5_250,
+                    text: "b".to_owned(),
+                },
+            ],
+        };
+
+        assert_eq!(transcript_duration_ms(&transcript), Some(5_250));
+    }
+
+    #[test]
+    fn duration_is_unknown_for_an_empty_transcript() {
+        let transcript = Transcript {
+            meeting_id: "m".to_owned(),
+            language: None,
+            speaker_scope: crate::SpeakerScope::Meeting,
+            segments: Vec::new(),
+        };
+
+        assert_eq!(transcript_duration_ms(&transcript), None);
+    }
+
+    #[test]
+    fn error_categories_are_derived_from_the_typed_error() {
+        assert_eq!(
+            CoreError::Provider(ProviderError::quota("openai", "x")).category(),
+            ProcessingJobErrorCategory::Quota
+        );
+        assert_eq!(
+            CoreError::Provider(ProviderError::failure("sqlite", "x")).category(),
+            ProcessingJobErrorCategory::Storage
+        );
+    }
 }

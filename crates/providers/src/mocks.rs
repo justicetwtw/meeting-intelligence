@@ -8,8 +8,9 @@ use std::{
 use async_trait::async_trait;
 use meeting_intelligence_core::{
     Artifact, IntelligenceProvider, IntelligenceRequest, Meeting, MeetingAnalysis, ProcessingJob,
-    ProviderError, Speaker, SpeakerIdentityProvider, SpeakerIdentityRequest, SpeakerIdentityStatus,
-    SpeakerProfile, StorageProvider, Transcript, TranscriptionProvider, TranscriptionRequest,
+    ProcessingStage, ProviderError, RunContext, Speaker, SpeakerIdentityProvider,
+    SpeakerIdentityRequest, SpeakerIdentityStatus, SpeakerProfile, StorageProvider, Transcript,
+    TranscriptionProvider, TranscriptionRequest,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
@@ -45,11 +46,24 @@ fn load_json<T: DeserializeOwned>(path: &Path) -> Result<T, FixtureLoadError> {
 #[derive(Clone, Debug)]
 pub struct FixtureTranscriptionProvider {
     transcript: Transcript,
+    retarget_meeting_id: bool,
 }
 
 impl FixtureTranscriptionProvider {
+    /// Returns the fixture verbatim, which is what contract tests need in order
+    /// to exercise Meeting Core's validation of provider output.
     pub fn new(transcript: Transcript) -> Self {
-        Self { transcript }
+        Self {
+            transcript,
+            retarget_meeting_id: false,
+        }
+    }
+
+    /// Rebinds the fixture to whichever meeting is being processed. Mock mode
+    /// needs this so one checked-in fixture can back many imported meetings.
+    pub fn retargeting_meeting_id(mut self) -> Self {
+        self.retarget_meeting_id = true;
+        self
     }
 
     pub fn from_json_path(path: impl AsRef<Path>) -> Result<Self, FixtureLoadError> {
@@ -61,20 +75,42 @@ impl FixtureTranscriptionProvider {
 impl TranscriptionProvider for FixtureTranscriptionProvider {
     async fn transcribe(
         &self,
-        _request: TranscriptionRequest,
+        request: TranscriptionRequest,
+        context: &RunContext,
     ) -> Result<Transcript, ProviderError> {
-        Ok(self.transcript.clone())
+        context.progress.stage(ProcessingStage::Transcribing);
+        if context.cancellation.is_canceled() {
+            return Err(ProviderError::canceled("fixture-transcription"));
+        }
+
+        let mut transcript = self.transcript.clone();
+        if self.retarget_meeting_id {
+            transcript.meeting_id.clone_from(&request.meeting.id);
+        }
+        Ok(transcript)
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct MockIntelligenceProvider {
     analysis: MeetingAnalysis,
+    retarget_meeting_id: bool,
 }
 
 impl MockIntelligenceProvider {
+    /// Returns the fixture verbatim so contract tests can assert that Meeting
+    /// Core rejects a mismatched meeting or unknown evidence.
     pub fn new(analysis: MeetingAnalysis) -> Self {
-        Self { analysis }
+        Self {
+            analysis,
+            retarget_meeting_id: false,
+        }
+    }
+
+    /// Rebinds the fixture to whichever meeting is being processed.
+    pub fn retargeting_meeting_id(mut self) -> Self {
+        self.retarget_meeting_id = true;
+        self
     }
 
     pub fn from_json_path(path: impl AsRef<Path>) -> Result<Self, FixtureLoadError> {
@@ -86,9 +122,18 @@ impl MockIntelligenceProvider {
 impl IntelligenceProvider for MockIntelligenceProvider {
     async fn analyze(
         &self,
-        _request: IntelligenceRequest,
+        request: IntelligenceRequest,
+        context: &RunContext,
     ) -> Result<MeetingAnalysis, ProviderError> {
-        Ok(self.analysis.clone())
+        if context.cancellation.is_canceled() {
+            return Err(ProviderError::canceled("mock-intelligence"));
+        }
+
+        let mut analysis = self.analysis.clone();
+        if self.retarget_meeting_id {
+            analysis.meeting_id.clone_from(&request.meeting.id);
+        }
+        Ok(analysis)
     }
 }
 
@@ -119,6 +164,7 @@ impl SpeakerIdentityProvider for MockSpeakerIdentityProvider {
     async fn identify(
         &self,
         request: SpeakerIdentityRequest,
+        _context: &RunContext,
     ) -> Result<Vec<Speaker>, ProviderError> {
         let enrolled_profile_ids: HashSet<&str> = request
             .enrolled_profiles
@@ -145,6 +191,7 @@ impl SpeakerIdentityProvider for MockSpeakerIdentityProvider {
                     profile_id: Some(candidate.profile_id.clone()),
                     display_name: Some(candidate.display_name.clone()),
                     confidence: Some(candidate.confidence),
+                    manual_display_name: None,
                 },
                 (candidate, _) => Speaker {
                     transcript_speaker_id: segment.speaker_id.clone(),
@@ -152,6 +199,7 @@ impl SpeakerIdentityProvider for MockSpeakerIdentityProvider {
                     profile_id: None,
                     display_name: None,
                     confidence: candidate.map(|candidate| candidate.confidence),
+                    manual_display_name: None,
                 },
             });
         }
@@ -163,6 +211,7 @@ impl SpeakerIdentityProvider for MockSpeakerIdentityProvider {
 #[derive(Default)]
 struct InMemoryState {
     meetings: HashMap<String, Meeting>,
+    meeting_order: Vec<String>,
     jobs: HashMap<String, ProcessingJob>,
     transcripts: HashMap<String, Transcript>,
     speakers: HashMap<String, Vec<Speaker>>,
@@ -193,14 +242,25 @@ impl InMemoryStorageProvider {
 #[async_trait]
 impl StorageProvider for InMemoryStorageProvider {
     async fn save_meeting(&self, meeting: &Meeting) -> Result<(), ProviderError> {
-        self.write_state()?
-            .meetings
-            .insert(meeting.id.clone(), meeting.clone());
+        let mut state = self.write_state()?;
+        state.meeting_order.retain(|id| id != &meeting.id);
+        state.meeting_order.push(meeting.id.clone());
+        state.meetings.insert(meeting.id.clone(), meeting.clone());
         Ok(())
     }
 
     async fn load_meeting(&self, meeting_id: &str) -> Result<Option<Meeting>, ProviderError> {
         Ok(self.read_state()?.meetings.get(meeting_id).cloned())
+    }
+
+    async fn list_meetings(&self) -> Result<Vec<Meeting>, ProviderError> {
+        let state = self.read_state()?;
+        Ok(state
+            .meeting_order
+            .iter()
+            .rev()
+            .filter_map(|id| state.meetings.get(id).cloned())
+            .collect())
     }
 
     async fn save_job(&self, job: &ProcessingJob) -> Result<(), ProviderError> {

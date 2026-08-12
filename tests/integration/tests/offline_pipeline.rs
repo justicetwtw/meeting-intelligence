@@ -1,13 +1,14 @@
 use std::{collections::HashMap, fs, path::Path, path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use meeting_intelligence_core::{
-    AudioSource, CoreError, Meeting, MeetingAnalysis, MeetingCore, ProcessMeetingRequest,
-    ProcessedMeeting, ProcessingJobStatus, SpeakerIdentityStatus, SpeakerProfile, StorageProvider,
-    Transcript,
+    ArtifactEncoding, AudioSource, CoreError, Meeting, MeetingAnalysis, MeetingCore,
+    ProcessMeetingRequest, ProcessedMeeting, ProcessingJobStatus, SpeakerIdentityStatus,
+    SpeakerProfile, StorageProvider, Transcript,
 };
 use meeting_intelligence_exporters::{
-    ArtifactExporter, ExportBundle, JsonExporter, MarkdownExporter,
+    ArtifactExporter, DocxExporter, ExportBundle, JsonExporter, MarkdownExporter,
 };
 use meeting_intelligence_providers::{
     FixtureTranscriptionProvider, InMemoryStorageProvider, MockIntelligenceProvider,
@@ -40,15 +41,17 @@ async fn fixture_pipeline_exports_markdown_and_json_without_guessing_speakers() 
     );
 
     let processed = core
-        .process(ProcessMeetingRequest {
-            meeting,
-            audio_source: AudioSource::Fixture {
-                reference: "transcription/bootstrap-planning.json".to_owned(),
-            },
-            language_hints: vec!["en".to_owned()],
-            known_context: Some("offline integration test".to_owned()),
-            speaker_profiles,
-        })
+        .process(
+            ProcessMeetingRequest::new(
+                meeting,
+                AudioSource::Fixture {
+                    reference: "transcription/bootstrap-planning.json".to_owned(),
+                },
+            )
+            .with_language_hints(vec!["en".to_owned()])
+            .with_known_context(Some("offline integration test".to_owned()))
+            .with_speaker_profiles(speaker_profiles),
+        )
         .await?;
 
     let known = processed
@@ -76,12 +79,27 @@ async fn fixture_pipeline_exports_markdown_and_json_without_guessing_speakers() 
     let bundle = ExportBundle::from(&processed);
     let markdown = MarkdownExporter.export(&bundle)?;
     let json = JsonExporter.export(&bundle)?;
+    let docx = DocxExporter.export(&bundle)?;
     let decoded: ExportBundle = serde_json::from_str(&json.content)?;
 
     assert!(markdown.content.contains("## Decisions"));
-    assert!(markdown.content.contains("Unknown speaker"));
+    assert!(
+        markdown.content.contains("Speaker 2"),
+        "a rejected identity must render as a positional label"
+    );
+    assert!(
+        !markdown.content.contains("Bob"),
+        "the rejected 0.42-confidence candidate name must never be exported"
+    );
     assert!(markdown.content.contains("seg_003"));
     assert_eq!(decoded, bundle);
+    assert_eq!(docx.encoding, ArtifactEncoding::Base64);
+    let docx_bytes = STANDARD.decode(&docx.content)?;
+    assert_eq!(
+        &docx_bytes[0..2],
+        b"PK",
+        "the Word export must be a real package"
+    );
     assert_eq!(
         storage.load_analysis("meeting_fixture_001").await?,
         Some(processed.analysis)
@@ -197,15 +215,15 @@ async fn run_pipeline(
     );
 
     Ok(core
-        .process(ProcessMeetingRequest {
-            meeting,
-            audio_source: AudioSource::Fixture {
-                reference: "negative-test".to_owned(),
-            },
-            language_hints: vec![],
-            known_context: None,
-            speaker_profiles: profiles,
-        })
+        .process(
+            ProcessMeetingRequest::new(
+                meeting,
+                AudioSource::Fixture {
+                    reference: "negative-test".to_owned(),
+                },
+            )
+            .with_speaker_profiles(profiles),
+        )
         .await)
 }
 

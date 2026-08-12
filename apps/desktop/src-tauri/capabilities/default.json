@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Minimum capability set for the main desktop window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-message"]
 }

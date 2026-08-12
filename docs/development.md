@@ -13,6 +13,10 @@ credential, GPU, Hugging Face token, paid service, or model download is needed.
 - Python 3.12 or newer
 - Docker Compose only when testing the optional self-host service foundation
 
+FFmpeg (`ffmpeg` and `ffprobe`) is required only to process a real recording in
+the desktop app. Put them on `PATH`, or set the FFmpeg folder in Settings. No
+test, verification stage, or mock-mode run needs FFmpeg installed.
+
 ## Local-first validation
 
 Local validation is currently the authoritative merge gate. On Windows, run the
@@ -60,9 +64,11 @@ npm test
 npm run build
 ```
 
-Use `npm run dev --workspace @meeting-intelligence/desktop` for the browser shell.
-The desktop interface shows mock capability only; it does not accept or persist
-provider keys.
+Use `npm run tauri dev --workspace @meeting-intelligence/desktop` to run the real
+desktop application. `npm run dev` starts the browser shell only; without the
+native backend every command fails with a clear message rather than pretending to
+work, because credentials, the local library, and providers all live behind the
+Tauri boundary.
 
 ## Rust workspace
 
@@ -84,8 +90,27 @@ cargo run --package meeting-intelligence-server -- fixtures target/local-validat
 ```
 
 The command reads checked-in synthetic JSON, passes it through Meeting Core and
-the mock intelligence provider, and writes deterministic Markdown and JSON
+the mock intelligence provider, and writes deterministic Markdown, JSON, and Word
 exports under `target/local-validation-output` without network access.
+
+## Live OpenAI contract tests
+
+The production OpenAI adapters have opt-in tests that call the real API. They are
+compiled only with the `openai-live` feature and skip at runtime unless the
+credential variable is set, so `cargo test`, `scripts/verify.ps1`, and CI never
+spend money.
+
+```powershell
+$env:MEETING_INTELLIGENCE_OPENAI_TEST_KEY = "sk-..."
+# Optional, for the transcription check: a short (<60 s) recording you own.
+$env:MEETING_INTELLIGENCE_OPENAI_TEST_AUDIO = "C:\path\to\short-sample.m4a"
+cargo test --package meeting-intelligence-integration-tests --features openai-live --test openai_live -- --nocapture
+```
+
+The credential check lists models, the analysis check sends a three-line
+synthetic transcript, and the transcription check needs a short recording you
+supply. Never point these at a real company meeting, and never commit a recording
+or a raw provider response containing real content.
 
 ## Python local-AI service
 

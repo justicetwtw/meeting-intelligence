@@ -14,6 +14,25 @@ milestone cannot claim completion from interface screenshots alone.
 Exit gate: clean-clone build and tests for Rust, TypeScript, and Python; offline
 pipeline; hosted CI.
 
+## M1. OpenAI desktop MVP (current)
+
+The first milestone that produces a usable product. It draws selectively from
+milestones 1, 2, and 4 below rather than completing them.
+
+- OS-native credential storage, onboarding, and a connection test
+- FFmpeg audio ingestion with silence-aware chunking for long recordings
+- OpenAI speaker-aware transcription and structured meeting analysis
+- Evidence validation, manual speaker naming, and meeting history in SQLite
+- Desktop screens for onboarding, import, processing, detail, and settings
+- Markdown, JSON, and Word export
+
+Exit gate: deterministic tests for every new module, an offline mock path that
+still needs no credential, opt-in-only live API tests, and a full local
+verification run.
+
+Explicitly still out of scope: voiceprints, automatic speaker identification,
+local inference, Slack, accounts, telemetry, and code signing.
+
 ## 1. Local meeting core
 
 - Explicit job state machine and cancellation

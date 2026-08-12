@@ -13,7 +13,16 @@ UI -> allow-listed native command -> OS-native secure storage -> provider
 
 React code may request that the native backend store, test, or remove a
 credential. It must not receive the raw value back, persist it in state,
-`localStorage`, IndexedDB, logs, crash reports, or settings JSON.
+`localStorage`, IndexedDB, logs, crash reports, or settings JSON. The interface
+sees only whether a credential is configured and a non-reversible hint such as
+`…3f9a`.
+
+The secret type enforces this in code rather than by convention: it has no
+`Serialize` implementation, its `Debug` and `Display` are redacted, and its
+buffer is zeroed on drop. Reading it requires an explicit `expose()` call, so
+every read site is greppable. Windows uses the Credential Manager, macOS the
+Keychain, and other Unix systems the Secret Service, through a maintained
+credential library rather than any hand-rolled cryptography.
 
 Self-hosted credentials follow:
 
@@ -33,6 +42,11 @@ bounded sizes, result categories, and redacted provider errors.
 
 Error messages crossing into an interface must not echo request bodies or
 provider response bodies. Development debug output follows the same rule.
+
+Provider failures are classified by HTTP status into a fixed set of categories,
+and the interface message is chosen from a table of static sentences keyed by
+category. Nothing derived from an upstream response reaches a user, a log, or a
+stored job record.
 
 ## Input and network controls
 

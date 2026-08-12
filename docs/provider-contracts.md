@@ -20,6 +20,32 @@ Implementations must not mutate UI state or rely on a particular interface.
 IDs remain stable across analysis and export. Providers return canonical data or
 typed errors; they do not return framework-specific response objects.
 
+### Additive fields
+
+The following optional fields exist alongside the original bootstrap shape. Each
+has a serde default, so a payload written by an earlier build still loads.
+
+- `Transcript.speaker_scope`: `meeting` (default) or `chunk`. `chunk` means the
+  transcript was assembled from independently diarized uploads, so a speaker ID
+  is only meaningful inside its own chunk.
+- `Speaker.manual_display_name`: an operator-supplied label. It never replaces
+  `transcript_speaker_id` and never implies a resolved identity.
+- `Meeting.duration_ms`: total recording length once known.
+- `Artifact.encoding`: `utf8` (default) or `base64`, so binary artifacts such as
+  Word documents fit the existing artifact shape.
+- `IntelligenceRequest.analysis_mode`: `fast`, `standard` (default), or `deep`.
+
+`ProcessingJobErrorCategory` gained `credential`, `quota`, `network`, `audio`,
+`configuration`, and `canceled`. Categories remain redacted: they never carry a
+provider message, request body, or header.
+
+## `RunContext`
+
+Every provider call receives a `RunContext` with a progress sink and a
+cooperative cancellation token. It carries orchestration only, so providers stay
+stateless and reusable across runs. Progress events carry stable IDs, a stage,
+and bounded part counts — never file names, transcript text, or payloads.
+
 ## `TranscriptionProvider`
 
 Input:
@@ -27,10 +53,17 @@ Input:
 - an audio source reference (not necessarily a local path)
 - zero or more language hints
 - optional known context
+- a `RunContext`
 
 Output: a canonical, speaker-aware `Transcript`. The provider must preserve
 ordered millisecond timing and stable segment IDs. A network implementation must
 be explicitly selected and disabled in offline mock mode.
+
+A provider that splits a recording is responsible for producing one coherent
+transcript: whole-meeting timestamps, globally unique and ordered segment IDs,
+and speaker IDs whose scope is stated in `Transcript.speaker_scope`. Diarized
+output may overlap; the canonical transcript is a single ordered timeline, so a
+provider resolves overlaps deterministically rather than discarding speech.
 
 ## `SpeakerIdentityProvider`
 
@@ -51,23 +84,43 @@ Input:
 - meeting metadata
 
 Output: structured `MeetingAnalysis`. Evidence fields may contain only segment
-IDs present in the input transcript. Providers must not invent or silently
-discard evidence references.
+IDs present in the input transcript. Providers must not invent evidence
+references; an ID that is not in the transcript is dropped and counted, never
+accepted. An action item has no assignee and no due date unless the transcript
+states one — neither may be inferred from who was speaking.
+
+A network implementation must request a strict structured output rather than
+parsing free text, and must map its own reasoning settings from the product's
+three analysis modes so no interface encodes a vendor parameter.
 
 ## `StorageProvider`
 
 The storage contract owns meeting, job, transcript, speaker profile, analysis,
-and artifact persistence. It exposes domain operations rather than SQL. UI code
-and provider code cannot depend on SQLite types, schema details, or connections.
+and artifact persistence, plus ordered meeting history. It exposes domain
+operations rather than SQL. UI code and provider code cannot depend on SQLite
+types, schema details, or connections.
 
-SQLite is the first local implementation foundation. Schema migrations must be
-explicit, idempotently tracked, and tested before real meeting data is stored.
+SQLite is the first local implementation. Migrations are an append-only list
+applied in order inside a transaction, tracked by `PRAGMA user_version`, and
+tested for a fresh database, a repeat run, an upgrade from an existing database,
+and a refusal to open a database newer than the build.
 
 ## Exporters
 
 Exporters consume canonical data and return an `Artifact`; they are not AI
-providers and do not call storage directly. Bootstrap includes deterministic
-Markdown/JSON behavior. Word export is planned behind the same artifact model.
+providers and do not call storage directly. Markdown, JSON, and Word exports are
+deterministic: two exports of the same meeting are byte-identical. The Word
+export is a real WordprocessingML package, not renamed HTML, delivered as a
+Base64 artifact.
+
+## OpenAI adapters
+
+The OpenAI adapters live behind a crate feature. Nothing in mock mode or the
+offline pipeline enables it, so a credential-free build cannot make a paid call.
+Every request passes through an injectable transport, which is what allows the
+adapters to be tested end to end against recorded responses with no socket, no
+credential, and no cost. Failures map onto typed provider errors by status; the
+upstream response body is never placed into an error message.
 
 ## Local-AI HTTP boundary
 

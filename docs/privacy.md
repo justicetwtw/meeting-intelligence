@@ -34,6 +34,25 @@ Local mode should keep content on the user's selected host except for deliberate
 interface traffic. BYOK mode sends only the minimum required content to the
 chosen provider. Self-hosted mode keeps provider credentials on the server.
 
+## Current desktop disclosure
+
+The desktop application states this during onboarding and in Settings:
+
+```text
+Cloud mode:
+Audio and transcript needed for the AI processing you select are sent to the
+configured provider.
+
+Local meeting history remains on this device.
+```
+
+Concretely: prepared audio is uploaded to the configured transcription provider,
+and the transcript text is sent to the configured intelligence provider. The
+meeting library, transcripts, analyses, and exports are stored locally. The
+original recording is never uploaded in place, never modified, and never copied
+outside a temporary workspace that is removed when the run ends. There is no
+telemetry, analytics, or crash-reporting SDK.
+
 ## Logs and support
 
 Logs use opaque IDs and bounded metadata, not raw meeting content or credentials.
