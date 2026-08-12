@@ -42,8 +42,23 @@ The current repository is an engineering foundation. Do not implement full
 transcription, speaker embeddings, a production Slack bot, accounts, billing,
 telemetry, analytics, or a production backend as part of bootstrap maintenance.
 
-## Validation
+## Local-first validation
 
-Run the checks listed in `docs/development.md` for every affected stack. Report
-exact commands and results; do not imply a check or hosted workflow ran when it
-did not.
+Local validation is currently the authoritative merge gate. After any
+implementation change, agents must run the following command from the repository
+root and receive `LOCAL VALIDATION: PASS` before considering implementation
+validation complete:
+
+```powershell
+.\scripts\verify.ps1
+```
+
+Hosted GitHub Actions are currently unable to start because of an account-level
+billing lock. If a job reports `The job was not started because your account is
+locked due to a billing issue.` and ran `0 steps`, classify it as infrastructure
+or account state—not an application, test, or workflow-logic failure. Do not
+change application code, lower assertions, delete tests, or modify workflows to
+work around that condition.
+
+Run the checks listed in `docs/development.md` and report exact commands and
+results. Never imply that a check or hosted workflow ran when it did not.

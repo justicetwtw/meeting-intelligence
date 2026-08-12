@@ -2,3 +2,4 @@ dist
 node_modules
 target
 package-lock.json
+apps/desktop/src-tauri/gen
