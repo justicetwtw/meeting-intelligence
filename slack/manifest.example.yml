@@ -1,0 +1,28 @@
+_metadata:
+  major_version: 2
+
+display_information:
+  name: Meeting Intelligence (Example)
+  description: Example manifest for the unimplemented Meeting Intelligence Slack transport
+  background_color: "#1F2937"
+
+features:
+  bot_user:
+    display_name: Meeting Intelligence
+    always_online: false
+
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: true

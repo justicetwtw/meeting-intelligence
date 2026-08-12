@@ -1,0 +1,12 @@
+{
+  "id": "meeting_fixture_001",
+  "title": "Bootstrap planning",
+  "started_at": "2026-08-12T09:00:00Z",
+  "processing_state": "pending",
+  "artifact_ids": [],
+  "participants": ["Alice", "Guest"],
+  "metadata": {
+    "mode": "mock",
+    "source": "checked-in fixture"
+  }
+}

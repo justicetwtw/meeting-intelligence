@@ -1,0 +1,39 @@
+name: Release desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build and upload unsigned bootstrap installer
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: npm run tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: Meeting Intelligence ${{ github.ref_name }}
+          releaseBody: Unsigned early-development build. See repository documentation before use.
+          releaseDraft: true
+          prerelease: true
+          uploadUpdaterJson: false
+
+# Bootstrap intentionally has no private signing credentials. Before production:
+# add Windows code signing, updater signing, provenance, and a release approval gate.

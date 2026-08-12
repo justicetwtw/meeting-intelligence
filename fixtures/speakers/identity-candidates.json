@@ -1,0 +1,12 @@
+{
+  "speaker_01": {
+    "profile_id": "profile_alice",
+    "display_name": "Untrusted provider alias",
+    "confidence": 0.97
+  },
+  "speaker_02": {
+    "profile_id": "profile_bob",
+    "display_name": "Bob",
+    "confidence": 0.42
+  }
+}

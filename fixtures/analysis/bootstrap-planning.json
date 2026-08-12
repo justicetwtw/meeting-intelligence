@@ -1,0 +1,27 @@
+{
+  "meeting_id": "meeting_fixture_001",
+  "summary": "The team agreed to keep bootstrap processing offline and to verify deterministic Markdown and JSON artifacts.",
+  "decisions": [
+    {
+      "id": "decision_001",
+      "statement": "The bootstrap pipeline will use checked-in fixtures and mock providers only.",
+      "evidence_segment_ids": ["seg_001"]
+    }
+  ],
+  "action_items": [
+    {
+      "id": "action_001",
+      "description": "Verify the Markdown and JSON artifacts.",
+      "assignee_profile_id": "profile_alice",
+      "due_at": null,
+      "evidence_segment_ids": ["seg_002", "seg_003"]
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "question_001",
+      "question": "Which production provider should be implemented first?",
+      "evidence_segment_ids": ["seg_001"]
+    }
+  ]
+}

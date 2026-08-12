@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Meeting Intelligence">
+  <defs>
+    <linearGradient id="background" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#background)"/>
+  <path d="M144 180c0-39.8 32.2-72 72-72h80c39.8 0 72 32.2 72 72v72c0 39.8-32.2 72-72 72h-56l-72 64v-72.5c-14.7-13.2-24-32.4-24-53.5v-82Z" fill="#F8FAFC"/>
+  <path d="M208 204v44M256 176v100M304 204v44" fill="none" stroke="#2563EB" stroke-linecap="round" stroke-width="24"/>
+</svg>

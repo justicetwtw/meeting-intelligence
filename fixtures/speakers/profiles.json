@@ -1,0 +1,12 @@
+[
+  {
+    "id": "profile_alice",
+    "display_name": "Alice",
+    "enrollment_references": ["fixture:alice"]
+  },
+  {
+    "id": "profile_bob",
+    "display_name": "Bob",
+    "enrollment_references": ["fixture:bob"]
+  }
+]
