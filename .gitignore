@@ -12,6 +12,7 @@ coverage/
 
 # Rust
 target/
+apps/desktop/src-tauri/gen/
 
 # Python
 __pycache__/
